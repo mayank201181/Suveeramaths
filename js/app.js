@@ -1,9 +1,17 @@
 // ============================================================
 // Suveera's Magic Maths — main app controller
+// ------------------------------------------------------------
+// Two sections share ONE quiz engine:
+//   • 'vedic'  — Vedic / mental-maths techniques (default tab)
+//   • 'topics' — the Maths Adventures topics
+// Both have guides+diagrams, 3 levels, +25 expandable batches,
+// crowns/score, and progressive unlocking. New techniques/topics
+// can be added in content.js / vedic.js and appear automatically.
 // ============================================================
 
 import * as API from './api.js';
 import { cacheGet, cacheClear, lastName } from './storage.js';
+import { VEDIC, VEDIC_BY_ID, generateVedic } from './vedic.js';
 
 const app = document.getElementById('app');
 const confettiLayer = document.getElementById('confetti-layer');
@@ -12,6 +20,7 @@ let content = null;          // { topics, points, crowns, batchSize }
 let TOPIC_BY_ID = {};
 let state = null;            // player progress
 let session = null;          // transient quiz session
+let currentSection = 'vedic';// 'vedic' (default landing) or 'topics'
 
 const POINTS = () => content.points;
 const CROWNS = () => content.crowns;
@@ -22,6 +31,38 @@ const el = (html) => { const t = document.createElement('template'); t.innerHTML
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
 const save = () => API.savePlayer(state);
+
+// ============================================================
+//  SECTIONS — the generic engine is driven by this descriptor
+// ============================================================
+const SECTIONS = {
+  vedic: {
+    title: '🕉️ Vedic Maths',
+    subtitle: 'Learn clever short-cuts, then practise! ✨',
+    items: () => VEDIC,
+    byId: (id) => VEDIC_BY_ID[id],
+    prog: () => state.vedic,
+    getQ: (id, d, lvl) => Promise.resolve(generateVedic(id, d, lvl)),
+    otherLabel: '🎮 Maths Adventures (Topics)',
+    crownsFor: (d) => CROWNS()[d],
+    pointsFor: (d) => POINTS()[d],
+    footnote: 'Tap a technique to learn it, then practise. Grown-ups can teach from here too! 👩‍👧',
+  },
+  topics: {
+    title: null, // uses the personalised "Hi <name>"
+    subtitle: 'Pick a maths adventure 🌈',
+    items: () => content.topics,
+    byId: (id) => TOPIC_BY_ID[id],
+    prog: () => state.topics,
+    getQ: (id, d, lvl) => API.getQuestion(id, d, lvl),
+    otherLabel: '🕉️ Vedic Maths',
+    crownsFor: (d) => CROWNS()[d],
+    pointsFor: (d) => POINTS()[d],
+    footnote: 'More adventures unlock as you win crowns! 👑',
+  },
+};
+const SEC = () => SECTIONS[currentSection];
+const otherSection = () => (currentSection === 'vedic' ? 'topics' : 'vedic');
 
 // ============================================================
 //  SOUND, SPEECH & CONFETTI
@@ -116,7 +157,7 @@ function topbar({ home = true } = {}) {
   const bar = el(`<div class="topbar"></div>`);
   if (home) {
     const h = el(`<button class="home-btn" title="Home" aria-label="Home">🏠</button>`);
-    h.addEventListener('click', () => { stopSpeak(); renderHome(); });
+    h.addEventListener('click', () => goHome());
     bar.appendChild(h);
   }
   bar.appendChild(el(`<div class="stats"><span class="stat-pill">👑 ${state.totalCrowns}</span><span class="stat-pill">⭐ ${state.totalScore}</span></div>`));
@@ -129,6 +170,7 @@ function topbar({ home = true } = {}) {
   return bar;
 }
 const clear = () => { app.innerHTML = ''; stopSpeak(); };
+function goHome() { stopSpeak(); renderSectionHome(); }
 
 // ============================================================
 //  WELCOME
@@ -154,7 +196,6 @@ function renderWelcome() {
     const go = el(`<button class="big-btn">Start! 🚀</button>`);
     const start = async () => {
       const name = (input.value || '').trim() || 'Suveera';
-      // We need state.sound for speak(); seed a minimal flag.
       state = state || { sound: true };
       modal({
         emoji: '👋', title: `Hi ${name}!`,
@@ -175,7 +216,8 @@ async function begin(name) {
   clear();
   app.appendChild(el(`<h1 class="title" style="margin-top:60px">Loading… ✨</h1>`));
   state = await API.loadPlayer(name);
-  renderHome();
+  currentSection = 'vedic';
+  renderSectionHome();
 }
 
 function switchPlayer() {
@@ -190,72 +232,99 @@ function switchPlayer() {
 }
 
 // ============================================================
-//  HOME — topic map
+//  SECTION HOME — the map of techniques / topics
 // ============================================================
-function topicProgress(t) {
-  const ts = state.topics[t.id];
-  const pct = Math.min(100, Math.round((ts.crowns / t.unlockNext) * 100));
-  return { ts, pct, complete: ts.crowns >= t.unlockNext };
+function itemProgress(item) {
+  const ts = SEC().prog()[item.id];
+  const pct = Math.min(100, Math.round((ts.crowns / item.unlockNext) * 100));
+  return { ts, pct, complete: ts.crowns >= item.unlockNext };
 }
-function renderHome() {
+
+function renderSectionHome() {
   clear();
+  const sec = SEC();
   app.appendChild(topbar({ home: false }));
-  app.appendChild(el(`<h1 class="title" style="font-size:1.9rem;margin:6px 0 2px">Hi ${esc(state.name)}! 👋</h1>`));
-  app.appendChild(el(`<p class="subtitle">Pick a maths adventure 🌈</p>`));
+  if (sec.title) app.appendChild(el(`<h1 class="title" style="font-size:2rem;margin:6px 0 2px">${sec.title}</h1>`));
+  else app.appendChild(el(`<h1 class="title" style="font-size:1.9rem;margin:6px 0 2px">Hi ${esc(state.name)}! 👋</h1>`));
+  app.appendChild(el(`<p class="subtitle">${esc(sec.subtitle)}</p>`));
+
+  // switch to the other section
+  const swap = el(`<button class="big-btn ${currentSection === 'vedic' ? 'pink' : 'yellow'}" style="margin-bottom:16px">${esc(sec.otherLabel)} ➡️</button>`);
+  swap.addEventListener('click', () => { currentSection = otherSection(); renderSectionHome(); });
+  app.appendChild(swap);
+
+  const items = sec.items();
   const grid = el(`<div class="topic-grid"></div>`);
-  content.topics.forEach((t, i) => {
-    const { ts, pct, complete } = topicProgress(t);
-    if (!ts.unlocked) {
-      const prev = content.topics[i - 1];
-      grid.appendChild(el(`<div class="topic-card locked"><span class="emoji lock">🔒</span><div class="name">${esc(t.name)}</div><div class="crowns-line">Win ${prev.unlockNext} 👑 in<br>${esc(prev.name)} to open</div></div>`));
-      return;
-    }
+  let shown = 0;
+  items.forEach((t, i) => {
+    const { ts, pct, complete } = itemProgress(t);
+    if (!ts.unlocked) return; // hidden until added via the button below
+    shown++;
     const card = el(`<div class="topic-card tappable ${complete ? 'current' : ''}">${complete ? '<span class="done-badge">🌟</span>' : ''}<span class="emoji">${t.emoji}</span><div class="name">${esc(t.name)}</div><div class="bar"><i style="width:${pct}%"></i></div><div class="crowns-line">👑 ${ts.crowns} / ${t.unlockNext}</div></div>`);
-    card.addEventListener('click', () => renderTopic(t.id));
+    card.addEventListener('click', () => renderItem(t.id));
     grid.appendChild(card);
   });
   app.appendChild(grid);
-  app.appendChild(el(`<p class="footnote">More adventures unlock as you win crowns! 👑</p>`));
+
+  // "Add another technique/topic" — reveal the next locked item on demand
+  const nextLocked = items.find((t) => !SEC().prog()[t.id].unlocked);
+  if (nextLocked) {
+    const noun = currentSection === 'vedic' ? 'technique' : 'topic';
+    const addBtn = el(`<button class="big-btn secondary" style="margin-top:18px">➕ Add another ${noun}</button>`);
+    addBtn.addEventListener('click', () => {
+      SEC().prog()[nextLocked.id].unlocked = true;
+      save(); soundFanfare(); confetti(36);
+      modal({ emoji: '🎉', title: 'New ' + noun + ' added!', body: `You opened <b>${esc(nextLocked.name)} ${nextLocked.emoji}</b>. Have fun! ✨`, buttons: [{ label: 'Open it', cls: 'pink', onClick: () => renderItem(nextLocked.id) }, { label: 'Later', cls: 'ghost', onClick: () => renderSectionHome() }] });
+    });
+    app.appendChild(addBtn);
+  } else if (shown > 0) {
+    app.appendChild(el(`<p class="footnote">You've opened them all — amazing! 🏆</p>`));
+  }
+
+  app.appendChild(el(`<p class="footnote">${esc(sec.footnote)}</p>`));
   const sw = el(`<button class="tiny-link">Switch player</button>`);
   sw.addEventListener('click', () => switchPlayer());
   app.appendChild(sw);
 }
 
 // ============================================================
-//  TOPIC DETAIL
+//  ITEM DETAIL (technique / topic)
 // ============================================================
 const LEVELS = [
   { id: 'basic', label: 'Easy', dot: '🟢', desc: 'Tap the answer' },
   { id: 'intermediate', label: 'Medium', dot: '🟡', desc: 'Type the answer' },
   { id: 'advanced', label: 'Tricky', dot: '🔴', desc: 'Type the answer' },
 ];
-function renderTopic(topicId) {
+function renderItem(itemId) {
   clear();
-  const t = TOPIC_BY_ID[topicId];
-  const { ts, pct, complete } = topicProgress(t);
+  const sec = SEC();
+  const t = sec.byId(itemId);
+  const { ts, pct, complete } = itemProgress(t);
   app.appendChild(topbar());
-  app.appendChild(el(`<div class="card topic-hero" style="background:linear-gradient(160deg,#fff, ${t.color}22)"><span class="big-emoji">${t.emoji}</span><h2>${esc(t.name)}</h2></div>`));
-  const guideBtn = el(`<button class="big-btn yellow">📖 How does it work? (Guide)</button>`);
-  guideBtn.addEventListener('click', () => renderGuide(topicId));
+  app.appendChild(el(`<div class="card topic-hero" style="background:linear-gradient(160deg,#fff, ${t.color || '#7c4dff'}22)"><span class="big-emoji">${t.emoji}</span><h2>${esc(t.name)}</h2></div>`));
+  const guideBtn = el(`<button class="big-btn yellow">📖 ${currentSection === 'vedic' ? 'Learn the trick' : 'How does it work?'} (Guide)</button>`);
+  guideBtn.addEventListener('click', () => renderGuide(itemId));
   app.appendChild(guideBtn);
 
-  const idx = content.topics.findIndex((x) => x.id === topicId);
-  const next = content.topics[idx + 1];
+  const items = sec.items();
+  const idx = items.findIndex((x) => x.id === itemId);
+  const next = items[idx + 1];
   if (next) {
-    app.appendChild(el(`<div class="progress-wrap"><div class="label">👑 ${ts.crowns} / ${t.unlockNext} crowns to unlock ${esc(next.name)} ${next.emoji}</div><div class="progress-track"><i style="width:${pct}%"></i></div></div>`));
+    const noun = currentSection === 'vedic' ? 'technique' : 'topic';
+    app.appendChild(el(`<div class="progress-wrap"><div class="label">👑 ${ts.crowns} / ${t.unlockNext} crowns to unlock the next ${noun}: ${esc(next.name)} ${next.emoji}</div><div class="progress-track"><i style="width:${pct}%"></i></div></div>`));
   }
 
   app.appendChild(el(`<h3 class="section-head" style="font-size:1.2rem">Choose your questions</h3>`));
   LEVELS.forEach((lv) => {
     const d = ts.levels[lv.id];
     const btn = el(`<button class="level-btn"><span class="dot">${lv.dot}</span><span class="ltext"><b>${lv.label}</b><span>${lv.desc} · done ${d.done} of ${d.added}${d.batchLevel > 1 ? ' · level ' + d.batchLevel : ''}</span></span><span class="go">▶</span></button>`);
-    btn.addEventListener('click', () => startQuiz(topicId, lv.id));
+    btn.addEventListener('click', () => startQuiz(itemId, lv.id));
     app.appendChild(btn);
   });
 
-  if (next && state.topics[next.id].unlocked) {
-    const nx = el(`<button class="big-btn pink" style="margin-top:6px">➡️ Next topic: ${esc(next.name)} ${next.emoji}</button>`);
-    nx.addEventListener('click', () => renderTopic(next.id));
+  if (next && sec.prog()[next.id].unlocked) {
+    const nx = el(`<button class="big-btn pink" style="margin-top:6px">➡️ Next: ${esc(next.name)} ${next.emoji}</button>`);
+    nx.addEventListener('click', () => renderItem(next.id));
     app.appendChild(nx);
   }
 }
@@ -263,40 +332,41 @@ function renderTopic(topicId) {
 // ============================================================
 //  GUIDE (with diagram)
 // ============================================================
-function renderGuide(topicId) {
+function renderGuide(itemId) {
   clear();
-  const t = TOPIC_BY_ID[topicId];
+  const t = SEC().byId(itemId);
   app.appendChild(topbar());
   const card = el(`<div class="card"></div>`);
   card.appendChild(el(`<div style="text-align:center"><span style="font-size:3.4rem">${t.emoji}</span><h2 style="margin:4px 0">${esc(t.name)}</h2></div>`));
   card.appendChild(el(`<p style="font-size:1.2rem;line-height:1.45">${esc(t.guide.intro)}</p>`));
   if (t.guide.diagram) card.appendChild(el(`<div class="diagram-box">${t.guide.diagram}</div>`));
-  t.guide.points.forEach(([b, txt]) => card.appendChild(el(`<div class="guide-point"><span class="b">${b}</span><span>${esc(txt)}</span></div>`)));
+  (t.guide.points || []).forEach(([b, txt]) => card.appendChild(el(`<div class="guide-point"><span class="b">${b}</span><span>${esc(txt)}</span></div>`)));
   card.appendChild(el(`<h3 style="margin:8px 0 10px">Try these examples 👀</h3>`));
-  t.guide.examples.forEach((ex) => card.appendChild(el(`<div class="guide-example">${md(ex)}</div>`)));
+  (t.guide.examples || []).forEach((ex) => card.appendChild(el(`<div class="guide-example">${md(ex)}</div>`)));
   const listen = el(`<button class="big-btn yellow">🔊 Read this to me</button>`);
-  listen.addEventListener('click', () => speak([t.guide.intro, ...t.guide.points.map((p) => p[1]), ...t.guide.examples.map((e) => e.replace(/\*\*/g, ''))].join('. ')));
+  listen.addEventListener('click', () => speak([t.guide.intro, ...(t.guide.points || []).map((p) => p[1]), ...(t.guide.examples || []).map((e) => e.replace(/\*\*/g, ''))].join('. ')));
   card.appendChild(listen);
   const back = el(`<button class="big-btn" style="margin-top:12px">Let's try questions! ✏️</button>`);
-  back.addEventListener('click', () => renderTopic(topicId));
+  back.addEventListener('click', () => renderItem(itemId));
   card.appendChild(back);
   app.appendChild(card);
 }
 
 // ============================================================
-//  QUIZ
+//  QUIZ ENGINE (shared by both sections)
 // ============================================================
-function startQuiz(topicId, difficulty) {
-  const d = state.topics[topicId].levels[difficulty];
-  if (d.done >= d.added) return askAddMore(topicId, difficulty, () => startQuiz(topicId, difficulty));
-  session = { topicId, difficulty, current: null, answered: false };
+function startQuiz(itemId, difficulty) {
+  const d = SEC().prog()[itemId].levels[difficulty];
+  if (d.done >= d.added) return askAddMore(itemId, difficulty, () => startQuiz(itemId, difficulty));
+  session = { section: currentSection, itemId, difficulty, current: null, answered: false };
   renderQuestion();
 }
 
 async function renderQuestion() {
-  const { topicId, difficulty } = session;
-  const t = TOPIC_BY_ID[topicId];
-  const d = state.topics[topicId].levels[difficulty];
+  const { section, itemId, difficulty } = session;
+  const sec = SECTIONS[section];
+  const t = sec.byId(itemId);
+  const d = sec.prog()[itemId].levels[difficulty];
   if (d.done >= d.added) return renderQuizDone();
 
   clear();
@@ -307,8 +377,8 @@ async function renderQuestion() {
   const loading = el(`<div class="card question-card"><div class="q-text">…</div></div>`);
   app.appendChild(loading);
 
-  const q = await API.getQuestion(topicId, difficulty, d.batchLevel);
-  if (!session || session.topicId !== topicId) return; // navigated away
+  const q = await sec.getQ(itemId, difficulty, d.batchLevel);
+  if (!session || session.itemId !== itemId) return; // navigated away
   session.current = q;
   session.answered = false;
   loading.remove();
@@ -323,8 +393,7 @@ async function renderQuestion() {
   const hintBtn = el(`<button class="speak-btn hint">💡 Hint</button>`);
   hintBtn.addEventListener('click', () => {
     if (card.querySelector('.hint-box')) return;
-    const hb = el(`<div class="hint-box">💡 ${esc(q.hint || 'Take your time and count carefully!')}</div>`);
-    card.appendChild(hb); speak(q.hint || '');
+    card.appendChild(el(`<div class="hint-box">💡 ${esc(q.hint || 'Take your time!')}</div>`)); speak(q.hint || '');
   });
   tools.appendChild(sp); tools.appendChild(hintBtn);
   card.appendChild(tools);
@@ -356,12 +425,12 @@ async function renderQuestion() {
 function onAnswer(correct, btn, typed) {
   if (session.answered) return;
   session.answered = true;
-  const { topicId, difficulty, current } = session;
-  const t = TOPIC_BY_ID[topicId];
-  const ts = state.topics[topicId];
+  const { section, itemId, difficulty, current } = session;
+  const sec = SECTIONS[section];
+  const t = sec.byId(itemId);
+  const ts = sec.prog()[itemId];
   const d = ts.levels[difficulty];
 
-  // lock inputs / reveal correct choice
   document.querySelectorAll('.choice').forEach((b) => {
     b.disabled = true;
     if (b.textContent === current.answer) b.classList.add('reveal');
@@ -378,20 +447,21 @@ function onAnswer(correct, btn, typed) {
 
   if (correct) {
     d.correct += 1;
-    const gc = CROWNS()[difficulty], gs = POINTS()[difficulty];
+    const gc = sec.crownsFor(difficulty), gs = sec.pointsFor(difficulty);
     ts.crowns += gc; ts.score += gs; state.totalCrowns += gc; state.totalScore += gs;
     soundCorrect(); confetti(gc >= 3 ? 30 : 18);
     fb.appendChild(el(`<div class="msg good">${pickPraise()} +${gc} 👑</div>`));
-    const idx = content.topics.findIndex((x) => x.id === topicId);
-    const next = content.topics[idx + 1];
-    if (next && ts.crowns >= t.unlockNext && !state.topics[next.id].unlocked) { state.topics[next.id].unlocked = true; unlocked = next; }
+    const items = sec.items();
+    const idx = items.findIndex((x) => x.id === itemId);
+    const next = items[idx + 1];
+    if (next && ts.crowns >= t.unlockNext && !sec.prog()[next.id].unlocked) { sec.prog()[next.id].unlocked = true; unlocked = next; }
   } else {
     soundWrong();
     fb.appendChild(el(`<div class="msg try">Good try! 😊 The answer is <b>${esc(current.answer)}</b>${typed ? `, not "${esc(typed)}"` : ''}.</div>`));
   }
 
   // ALWAYS show the elaborate explanation so she learns the "why"
-  const exp = el(`<div class="explain-box"><div class="explain-head">📘 Let's see why:</div><div class="explain-body">${md(current.explanation || '')}</div><button class="speak-btn">🔊 Read this</button></div>`);
+  const exp = el(`<div class="explain-box"><div class="explain-head">${section === 'vedic' ? '🪄 The trick:' : "📘 Let's see why:"}</div><div class="explain-body">${md(current.explanation || '')}</div><button class="speak-btn">🔊 Read this</button></div>`);
   exp.querySelector('.speak-btn').addEventListener('click', () => speak(current.explanation));
   fb.appendChild(exp);
   if (!correct) speak(`Good try! The answer is ${current.answer}. ${current.explanation}`);
@@ -400,9 +470,7 @@ function onAnswer(correct, btn, typed) {
   save();
 
   const nextBtn = el(`<button class="big-btn" style="margin-top:16px">${d.done >= d.added ? 'See my results 🏆' : 'Next question ➡️'}</button>`);
-  nextBtn.addEventListener('click', () => {
-    if (unlocked) celebrateUnlock(unlocked, proceed); else proceed();
-  });
+  nextBtn.addEventListener('click', () => { if (unlocked) celebrateUnlock(unlocked, proceed); else proceed(); });
   fb.appendChild(nextBtn);
   function proceed() { if (d.done >= d.added) renderQuizDone(); else renderQuestion(); }
 
@@ -412,9 +480,10 @@ function onAnswer(correct, btn, typed) {
 const PRAISES = ['Brilliant! 🎉', 'Well done! 🌟', 'Superstar! ⭐', 'Yes! 🥳', 'Amazing! ✨', 'Clever girl! 💛', 'Fantastic! 🎊'];
 const pickPraise = () => PRAISES[Math.floor(Math.random() * PRAISES.length)];
 
-function celebrateUnlock(topic, onClose) {
+function celebrateUnlock(item, onClose) {
   soundFanfare(); confetti(40);
-  modal({ emoji: '🎉👑', title: 'New topic unlocked!', body: `You opened <b>${esc(topic.name)} ${topic.emoji}</b>! Keep going to discover even more.`, buttons: [{ label: 'Yay! Continue', cls: 'pink', onClick: onClose || (() => {}) }] });
+  const noun = currentSection === 'vedic' ? 'technique' : 'topic';
+  modal({ emoji: '🎉👑', title: `New ${noun} unlocked!`, body: `You opened <b>${esc(item.name)} ${item.emoji}</b>! Keep going to discover even more.`, buttons: [{ label: 'Yay! Continue', cls: 'pink', onClick: onClose || (() => {}) }] });
 }
 
 // ============================================================
@@ -422,34 +491,35 @@ function celebrateUnlock(topic, onClose) {
 // ============================================================
 function renderQuizDone() {
   clear();
-  const { topicId, difficulty } = session;
-  const t = TOPIC_BY_ID[topicId];
-  const d = state.topics[topicId].levels[difficulty];
+  const { section, itemId, difficulty } = session;
+  const sec = SECTIONS[section];
+  const t = sec.byId(itemId);
+  const d = sec.prog()[itemId].levels[difficulty];
   app.appendChild(topbar());
   const great = d.correct >= d.added * 0.8;
   app.appendChild(el(`<div class="result-emoji">${great ? '🏆' : '🌟'}</div>`));
   const card = el(`<div class="card"></div>`);
   card.appendChild(el(`<h2 style="text-align:center;margin:0 0 8px">${great ? 'Superstar!' : 'Great work!'} 🎉</h2>`));
   card.appendChild(el(`<div class="result-stat">You got ${d.correct} out of ${d.added} right! ✅</div>`));
-  card.appendChild(el(`<div class="result-stat">👑 ${state.topics[topicId].crowns} crowns in ${esc(t.name)}</div>`));
+  card.appendChild(el(`<div class="result-stat">👑 ${sec.prog()[itemId].crowns} crowns in ${esc(t.name)}</div>`));
   app.appendChild(card);
   confetti(great ? 40 : 22); if (great) soundFanfare(); else soundCorrect();
   const more = el(`<button class="big-btn">➕ Add 25 more questions</button>`);
-  more.addEventListener('click', () => askAddMore(topicId, difficulty, () => startQuiz(topicId, difficulty)));
+  more.addEventListener('click', () => askAddMore(itemId, difficulty, () => startQuiz(itemId, difficulty)));
   app.appendChild(more);
-  const backTopic = el(`<button class="big-btn secondary" style="margin-top:12px">↩️ Back to ${esc(t.name)}</button>`);
-  backTopic.addEventListener('click', () => renderTopic(topicId));
-  app.appendChild(backTopic);
+  const backItem = el(`<button class="big-btn secondary" style="margin-top:12px">↩️ Back to ${esc(t.name)}</button>`);
+  backItem.addEventListener('click', () => renderItem(itemId));
+  app.appendChild(backItem);
   const home = el(`<button class="big-btn ghost" style="margin-top:12px">🏠 Home</button>`);
-  home.addEventListener('click', () => renderHome());
+  home.addEventListener('click', () => goHome());
   app.appendChild(home);
 }
 
 // ============================================================
 //  ADD MORE — with the "make it harder" choice
 // ============================================================
-function askAddMore(topicId, difficulty, then) {
-  const d = state.topics[topicId].levels[difficulty];
+function askAddMore(itemId, difficulty, then) {
+  const d = SEC().prog()[itemId].levels[difficulty];
   modal({
     emoji: '➕', title: 'Add 25 more questions!',
     body: 'Do you want them the same, or a little bit harder? ⬆️',

@@ -29,7 +29,7 @@ export function shuffle(arr) {
 }
 
 // 4 unique numeric choices around the correct answer.
-function numChoices(correct, { min = 0, spread } = {}) {
+export function numChoices(correct, { min = 0, spread } = {}) {
   const s = spread || Math.max(2, Math.round(Math.abs(correct) * 0.4) + 1);
   const set = new Set([correct]);
   let guard = 0;
