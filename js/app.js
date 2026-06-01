@@ -4,6 +4,7 @@
 
 import * as API from './api.js';
 import { cacheGet, cacheClear, lastName } from './storage.js';
+import { TRICKS, TRICK_BY_ID, MASTERY, practice as practiceTrick } from './mentalmaths.js';
 
 const app = document.getElementById('app');
 const confettiLayer = document.getElementById('confetti-layer');
@@ -12,6 +13,8 @@ let content = null;          // { topics, points, crowns, batchSize }
 let TOPIC_BY_ID = {};
 let state = null;            // player progress
 let session = null;          // transient quiz session
+let mentalSession = null;    // transient mental-maths session
+let currentMode = 'mental';  // 'mental' (default landing) or 'topics'
 
 const POINTS = () => content.points;
 const CROWNS = () => content.crowns;
@@ -116,7 +119,7 @@ function topbar({ home = true } = {}) {
   const bar = el(`<div class="topbar"></div>`);
   if (home) {
     const h = el(`<button class="home-btn" title="Home" aria-label="Home">🏠</button>`);
-    h.addEventListener('click', () => { stopSpeak(); renderHome(); });
+    h.addEventListener('click', () => goHome());
     bar.appendChild(h);
   }
   bar.appendChild(el(`<div class="stats"><span class="stat-pill">👑 ${state.totalCrowns}</span><span class="stat-pill">⭐ ${state.totalScore}</span></div>`));
@@ -129,6 +132,7 @@ function topbar({ home = true } = {}) {
   return bar;
 }
 const clear = () => { app.innerHTML = ''; stopSpeak(); };
+function goHome() { stopSpeak(); if (currentMode === 'topics') renderHome(); else renderMentalHome(); }
 
 // ============================================================
 //  WELCOME
@@ -175,7 +179,7 @@ async function begin(name) {
   clear();
   app.appendChild(el(`<h1 class="title" style="margin-top:60px">Loading… ✨</h1>`));
   state = await API.loadPlayer(name);
-  renderHome();
+  renderMentalHome();
 }
 
 function switchPlayer() {
@@ -198,10 +202,14 @@ function topicProgress(t) {
   return { ts, pct, complete: ts.crowns >= t.unlockNext };
 }
 function renderHome() {
+  currentMode = 'topics';
   clear();
   app.appendChild(topbar({ home: false }));
   app.appendChild(el(`<h1 class="title" style="font-size:1.9rem;margin:6px 0 2px">Hi ${esc(state.name)}! 👋</h1>`));
   app.appendChild(el(`<p class="subtitle">Pick a maths adventure 🌈</p>`));
+  const toMental = el(`<button class="big-btn yellow" style="margin-bottom:16px">🧠 Mental Maths Tricks</button>`);
+  toMental.addEventListener('click', () => renderMentalHome());
+  app.appendChild(toMental);
   const grid = el(`<div class="topic-grid"></div>`);
   content.topics.forEach((t, i) => {
     const { ts, pct, complete } = topicProgress(t);
@@ -230,6 +238,7 @@ const LEVELS = [
   { id: 'advanced', label: 'Tricky', dot: '🔴', desc: 'Type the answer' },
 ];
 function renderTopic(topicId) {
+  currentMode = 'topics';
   clear();
   const t = TOPIC_BY_ID[topicId];
   const { ts, pct, complete } = topicProgress(t);
@@ -458,6 +467,139 @@ function askAddMore(topicId, difficulty, then) {
       { label: '⬆️ Make it a bit harder!', cls: 'pink', onClick: () => { d.added += BATCH(); d.batchLevel += 1; save(); then(); } },
     ],
   });
+}
+
+// ============================================================
+//  MENTAL MATHS — home / lesson / practice
+// ============================================================
+function renderMentalHome() {
+  currentMode = 'mental';
+  clear();
+  app.appendChild(topbar({ home: false }));
+  app.appendChild(el(`<h1 class="title" style="font-size:2rem;margin:6px 0 2px">🧠 Mental Maths</h1>`));
+  app.appendChild(el(`<p class="subtitle">Learn clever short-cuts, then practise! ✨</p>`));
+
+  let lastTag = null;
+  TRICKS.forEach((t) => {
+    if (t.tag !== lastTag) { app.appendChild(el(`<h3 class="section-head" style="font-size:1.15rem">${esc(t.tag)}</h3>`)); lastTag = t.tag; mountGrid(); }
+    addTrickCard(t);
+  });
+
+  let grid;
+  function mountGrid() { grid = el(`<div class="topic-grid"></div>`); app.appendChild(grid); }
+  function addTrickCard(t) {
+    const m = state.mental.tricks[t.id] || { correct: 0 };
+    const mastered = m.correct >= MASTERY;
+    const card = el(`<div class="topic-card tappable">${mastered ? '<span class="done-badge">🏆</span>' : ''}<span class="emoji">${t.emoji}</span><div class="name">${esc(t.name)}</div><div class="crowns-line">${mastered ? 'Mastered!' : (m.correct ? `✅ ${m.correct} / ${MASTERY}` : 'Tap to learn')}</div></div>`);
+    card.addEventListener('click', () => renderTrick(t.id));
+    grid.appendChild(card);
+  }
+
+  const toTopics = el(`<button class="big-btn pink" style="margin-top:20px">🎮 Maths Adventures (Topics) ➡️</button>`);
+  toTopics.addEventListener('click', () => renderHome());
+  app.appendChild(toTopics);
+  app.appendChild(el(`<p class="footnote">Tap a trick to learn it, then practise. Grown-ups can teach from here too! 👩‍👧</p>`));
+  const sw = el(`<button class="tiny-link">Switch player</button>`);
+  sw.addEventListener('click', () => switchPlayer());
+  app.appendChild(sw);
+}
+
+function renderTrick(id) {
+  currentMode = 'mental';
+  clear();
+  const t = TRICK_BY_ID[id];
+  app.appendChild(topbar());
+  app.appendChild(el(`<div class="card topic-hero"><span class="big-emoji">${t.emoji}</span><h2>${esc(t.name)}</h2><div style="color:#7c4dff;font-weight:700">${esc(t.tag)} trick</div></div>`));
+  const card = el(`<div class="card"></div>`);
+  card.appendChild(el(`<p style="font-size:1.2rem;line-height:1.45">${esc(t.lesson.intro)}</p>`));
+  if (t.lesson.diagram) card.appendChild(el(`<div class="diagram-box">${t.lesson.diagram}</div>`));
+  card.appendChild(el(`<h3 style="margin:10px 0 8px">How to do it 🪄</h3>`));
+  const ol = el(`<ol class="trick-steps"></ol>`);
+  t.lesson.steps.forEach((s) => ol.appendChild(el(`<li>${esc(s)}</li>`)));
+  card.appendChild(ol);
+  card.appendChild(el(`<h3 style="margin:12px 0 8px">Examples 👀</h3>`));
+  t.lesson.examples.forEach((ex) => card.appendChild(el(`<div class="guide-example">${md(ex)}</div>`)));
+  card.appendChild(el(`<div class="tip-box">💡 ${esc(t.lesson.tip)}</div>`));
+  const listen = el(`<button class="big-btn yellow">🔊 Read this to me</button>`);
+  listen.addEventListener('click', () => speak([t.lesson.intro, 'How to do it.', ...t.lesson.steps, 'For example.', ...t.lesson.examples.map((e) => e.replace(/\*\*/g, '')), t.lesson.tip].join('. ')));
+  card.appendChild(listen);
+  app.appendChild(card);
+  const go = el(`<button class="big-btn">✏️ Practise this trick!</button>`);
+  go.addEventListener('click', () => startMental(id));
+  app.appendChild(go);
+}
+
+function startMental(id) {
+  mentalSession = { id, level: 1, correct: 0, attempts: 0, streak: 0, answered: false, current: null };
+  renderMentalQuestion();
+}
+
+function renderMentalQuestion() {
+  currentMode = 'mental';
+  clear();
+  const t = TRICK_BY_ID[mentalSession.id];
+  app.appendChild(topbar());
+  app.appendChild(el(`<div class="quiz-meta"><span>${t.emoji} ${esc(t.name)}</span><span class="q-count">✅ ${mentalSession.correct} · 🔥 ${mentalSession.streak}</span></div>`));
+  const q = practiceTrick(mentalSession.id, mentalSession.level);
+  mentalSession.current = q; mentalSession.answered = false;
+  const card = el(`<div class="card question-card"></div>`);
+  card.appendChild(el(`<div class="q-text" style="font-size:1.8rem">${esc(q.text)}</div>`));
+  const tools = el(`<div class="q-tools"></div>`);
+  const sp = el(`<button class="speak-btn">🔊 Hear it</button>`);
+  sp.addEventListener('click', () => speak(q.speak));
+  const hint = el(`<button class="speak-btn hint">💡 Hint</button>`);
+  hint.addEventListener('click', () => { if (card.querySelector('.hint-box')) return; card.appendChild(el(`<div class="hint-box">💡 ${esc(q.hint)}</div>`)); speak(q.hint); });
+  tools.appendChild(sp); tools.appendChild(hint); card.appendChild(tools);
+  app.appendChild(card);
+  const choices = el(`<div class="choices"></div>`);
+  q.choices.forEach((c) => { const b = el(`<button class="choice">${esc(c)}</button>`); b.addEventListener('click', () => onMentalAnswer(c === q.answer, b)); choices.appendChild(b); });
+  app.appendChild(choices);
+  app.appendChild(el(`<div class="feedback"></div>`));
+  speak(q.speak);
+}
+
+function onMentalAnswer(correct, btn) {
+  if (mentalSession.answered) return;
+  mentalSession.answered = true;
+  const t = TRICK_BY_ID[mentalSession.id];
+  const q = mentalSession.current;
+  document.querySelectorAll('.choice').forEach((b) => { b.disabled = true; if (b.textContent === q.answer) b.classList.add('reveal'); });
+  btn.classList.add(correct ? 'correct' : 'wrong');
+  const m = state.mental.tricks[mentalSession.id] || (state.mental.tricks[mentalSession.id] = { correct: 0, attempts: 0, best: 0 });
+  m.attempts += 1; mentalSession.attempts += 1;
+  const fb = document.querySelector('.feedback');
+  let justMastered = false;
+
+  if (correct) {
+    m.correct += 1; mentalSession.correct += 1; mentalSession.streak += 1;
+    if (mentalSession.streak > (m.best || 0)) m.best = mentalSession.streak;
+    state.totalCrowns += 1; state.totalScore += 5;
+    soundCorrect(); confetti(mentalSession.streak % 5 === 0 ? 30 : 16);
+    fb.appendChild(el(`<div class="msg good">${pickPraise()} +1 👑${mentalSession.streak >= 3 ? ` · 🔥 ${mentalSession.streak} in a row!` : ''}</div>`));
+    if (m.correct === MASTERY) justMastered = true;
+  } else {
+    mentalSession.streak = 0; soundWrong();
+    fb.appendChild(el(`<div class="msg try">Good try! 😊 The answer is <b>${esc(q.answer)}</b>.</div>`));
+  }
+
+  const exp = el(`<div class="explain-box"><div class="explain-head">🪄 The trick:</div><div class="explain-body">${md(q.explanation)}</div><button class="speak-btn">🔊 Read this</button></div>`);
+  exp.querySelector('.speak-btn').addEventListener('click', () => speak(q.explanation));
+  fb.appendChild(exp);
+  if (!correct) speak(`Good try! The answer is ${q.answer}. ${q.explanation}`);
+
+  refreshPills(); save();
+
+  const next = el(`<button class="big-btn" style="margin-top:16px">Next question ➡️</button>`);
+  next.addEventListener('click', () => renderMentalQuestion());
+  fb.appendChild(next);
+  const done = el(`<button class="big-btn ghost" style="margin-top:12px">✅ Finish practice</button>`);
+  done.addEventListener('click', () => renderTrick(mentalSession.id));
+  fb.appendChild(done);
+
+  if (justMastered) {
+    soundFanfare(); confetti(44);
+    setTimeout(() => modal({ emoji: '🏆', title: 'Trick mastered!', body: `You've nailed <b>${esc(t.name)}</b>! Brilliant mental maths. 🌟`, buttons: [{ label: 'Yay!', cls: 'pink' }] }), 300);
+  }
 }
 
 // ============================================================

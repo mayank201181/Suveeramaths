@@ -24,7 +24,7 @@ export function freshTopic(unlocked) {
 export function newState(name) {
   const topics = {};
   TOPICS.forEach((t, i) => { topics[t.id] = freshTopic(i === 0); });
-  return { name, totalCrowns: 0, totalScore: 0, topics, sound: true };
+  return { name, totalCrowns: 0, totalScore: 0, topics, mental: { tricks: {} }, sound: true };
 }
 
 // Make sure a loaded state has every topic/level (for returning
@@ -35,6 +35,8 @@ export function ensureShape(state, name) {
   if (typeof state.totalCrowns !== 'number') state.totalCrowns = 0;
   if (typeof state.totalScore !== 'number') state.totalScore = 0;
   if (state.sound === undefined) state.sound = true;
+  if (!state.mental || typeof state.mental !== 'object') state.mental = { tricks: {} };
+  if (!state.mental.tricks) state.mental.tricks = {};
   if (!state.topics) state.topics = {};
   TOPICS.forEach((t, i) => {
     if (!state.topics[t.id]) state.topics[t.id] = freshTopic(i === 0);

@@ -295,5 +295,10 @@ h1.title {
 .explain-body { font-size:1.2rem; line-height:1.5; color:#27406b; }
 .explain-box .speak-btn { margin-top:10px; }
 
+/* ---------- Mental maths lesson ---------- */
+.trick-steps { font-size:1.15rem; line-height:1.5; padding-left:1.3em; margin:0; }
+.trick-steps li { margin-bottom:6px; }
+.tip-box { background:#e7fff3; border:2px solid #b6f0d6; color:#10794f; border-radius:16px; padding:12px 14px; margin-top:14px; font-weight:600; font-size:1.12rem; line-height:1.4; }
+
 .footnote { text-align:center; color:#fff; opacity:.85; font-size:.9rem; margin-top: 18px; }
 .tiny-link { color:#fff; text-decoration: underline; background:none; font-size:.95rem; opacity:.9; display:block; margin: 14px auto 0; }
