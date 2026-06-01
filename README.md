@@ -66,7 +66,7 @@ Saved progress lives in `data/players.json` (created automatically, git-ignored)
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/mayank201181/Suveeramaths)
 
 Built the way Vercel likes it: static files at the root and **serverless
-functions** in `/api` (`content`, `question`, `player/[name]`). No build step and
+functions** in `/api` (`content`, `question`, `player`). No build step and
 no dependencies.
 
 1. Click the button (or in Vercel: **Add New → Project → Import** this repo).
@@ -87,7 +87,8 @@ index.html             # shell
 css/styles.css         # kid-friendly styles, animations, confetti
 api/content.js         # Vercel function: topics + config
 api/question.js        # Vercel function: one generated topic question
-api/player/[name].js   # Vercel function: load/save a player
+api/player.js          # Vercel function: load/save a player (/api/player/:name)
+vercel.json            # Vercel build + routing (serves js/ & css/, maps /api/*)
 server.js              # local Node server (same behaviour as the functions)
 server/core.js         # shared request logic                       (shared)
 server/store.js        # Vercel KV / Upstash, or JSON-file fallback (shared)

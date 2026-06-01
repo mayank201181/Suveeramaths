@@ -1,5 +1,6 @@
 // Vercel serverless function — GET/POST /api/player/:name
-import { loadPlayer, savePlayer } from '../../server/core.js';
+// vercel.json maps /api/player/<name> to this file with ?name=<name>.
+import { loadPlayer, savePlayer } from '../server/core.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
