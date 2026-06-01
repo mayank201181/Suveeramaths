@@ -1,0 +1,10 @@
+# Player progress is generated at runtime — don't commit it
+data/*.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.log

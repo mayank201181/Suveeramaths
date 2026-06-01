@@ -1,0 +1,14 @@
+{
+  "name": "suveeramaths",
+  "version": "1.0.0",
+  "description": "Suveera's Magic Maths — an ever-expanding maths playground for a 5-year-old, with guides, diagrams, hints, crowns and progress sync.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
