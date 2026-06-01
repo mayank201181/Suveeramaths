@@ -1,0 +1,2 @@
+# This folder holds saved player progress (players.json) at runtime.
+# The file itself is git-ignored; this keeps the folder in the repo.
